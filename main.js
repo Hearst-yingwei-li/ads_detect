@@ -27,7 +27,7 @@ async function processUrls() {
                     height: viewport_height, // iPhone 16 viewport height 852
                     deviceScaleFactor: 3 // Retina display scaling factor
                 },
-                protocolTimeout: 100000,
+                protocolTimeout: 150000,
                 args: ["--no-sandbox", "--disable-setuid-sandbox"]
             });
             const page = await browser.newPage();
