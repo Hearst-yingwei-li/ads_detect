@@ -20,17 +20,8 @@ async function processUrls() {
         .on('end', async () => {
             console.log('CSV file successfully processed.');
             // Open a new page
-            const browser = await puppeteer.launch({
-                headless: false, // Set to true if you don’t want to see the browser
-                defaultViewport: {
-                    width: 393, // iPhone 16 viewport width
-                    height: viewport_height, // iPhone 16 viewport height 852
-                    deviceScaleFactor: 3 // Retina display scaling factor
-                },
-                protocolTimeout: 150000,
-                args: ["--no-sandbox", "--disable-setuid-sandbox"]
-            });
-            const page = await browser.newPage();
+            let browser = await launchBrowser();
+            let page = await browser.newPage();
             try {
                 await page.setUserAgent("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36");
             } catch (error) {
@@ -50,11 +41,19 @@ async function processUrls() {
                     hasTouch: true
                 }
             });
-
+            let index = 0;
             for (let row of results) {
                 // for (let row of results.slice(2)) {
                 console.log(`---- Processing article: ${row.id}, URL: ${row.url}`);
-                // await new Promise(resolve => setTimeout(resolve, 3000));
+                index = index + 1;
+                if (index % 40 === 0) {
+                    console.log("Restarting browser...");
+                    await page.close();
+                    await browser.close();
+
+                    browser = await launchBrowser();
+                    page = await browser.newPage();
+                }
                 try {
 
                     try {
@@ -137,7 +136,7 @@ async function processUrls() {
                 console.log(`Results saved to ${outputCsvFile}`);
             }
 
-            await browser.close();
+            if (browser != null) { await browser.close(); }
         });
 }
 
@@ -166,11 +165,59 @@ async function autoScroll(page) {
 async function safeGoto(page, url) {
     for (let i = 0; i < MAX_RETRIES; i++) {
         try {
-            await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });//networkidle2
+            await page.goto(url, { waitUntil: "domcontentloaded", timeout: 120000 });//networkidle2
             return; // Success, exit loop
         } catch (error) {
             console.warn(`Retry ${i + 1}/${MAX_RETRIES}: Failed to load ${url}`);
             if (i === MAX_RETRIES - 1) throw error; // Final attempt failed
         }
     }
+}
+
+async function launchBrowser() {
+    return await puppeteer.launch({
+        headless: false, // Set to true if you don’t want to see the browser
+        defaultViewport: {
+            width: 393, // iPhone 16 viewport width
+            height: viewport_height, // iPhone 16 viewport height 852
+            deviceScaleFactor: 3 // Retina display scaling factor
+        },
+        protocolTimeout: 500000,
+        timeout: 0,
+        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--disable-extensions"]
+    });
+}
+
+async function openBrowser(browser) {
+    browser = await puppeteer.launch({
+        headless: false, // Set to true if you don’t want to see the browser
+        defaultViewport: {
+            width: 393, // iPhone 16 viewport width
+            height: viewport_height, // iPhone 16 viewport height 852
+            deviceScaleFactor: 3 // Retina display scaling factor
+        },
+        protocolTimeout: 500000,
+        timeout: 0,
+        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--disable-extensions"]
+    });
+    page = await browser.newPage();
+    try {
+        await page.setUserAgent("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36");
+    } catch (error) {
+        console.warn("User agent override failed, retrying...");
+        await page.waitForTimeout(3000);
+        await page.setUserAgent("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36");
+    }
+    // Emulate iPhone 16 settings
+    await page.emulate({
+        userAgent:
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36",
+        viewport: {
+            width: 393,
+            height: viewport_height, //852
+            deviceScaleFactor: 3,
+            isMobile: true,
+            hasTouch: true
+        }
+    });
 }
