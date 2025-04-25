@@ -32,7 +32,7 @@ function extractSlideDataFromDOM() {
     slides.forEach((slide, index) => {
         if (index === slides.length - 1) return;
         const embedType = getEmbedType(slide);
-        console.log(`<<<<< slide :: ${index + 1} embed type ::${embedType}`);
+        console.log(`slide :: ${index + 1} embed type ::${embedType}`);
         const slideId = slide.id;
 
         // 1. タイトル input (text value)
@@ -69,6 +69,19 @@ function getEmbedType(slideElement) {
     if (isProductsEmbed(slideElement)) return EmbedType.PRODUCTS;
     if (isImageEmbed(slideElement)) return EmbedType.IMAGE;
     return null;
+}
+
+function isHtmlContentEmpty(htmlString) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlString, 'text/html');
+
+    // Get all text content, trim whitespace & non-breaking spaces
+    const text = doc.body.textContent.replace(/\u00A0/g, '').trim();
+
+    // Check if there's any non-empty element (e.g., <img>, <video>, etc.)
+    const hasNonEmptyTag = doc.body.querySelector('*');
+
+    return text === '' && !hasNonEmptyTag;
 }
 
 function isYoutubeEmbed(slideElement) {
@@ -182,8 +195,6 @@ function calculateImageScreenHeight(slide) {
     }
     return height * 393 / width + 10;// margin bottom : 10
 }
-
-
 
 /**
  * 1.Why simple url does not work( why can not do the same way as pinterest )
@@ -391,10 +402,9 @@ function extractProductSlideInfo(slide) {
     // 4. Custom Tag
     const customTagInput = slide.slideElement.querySelector('input[name*="[metadata][custom_tag]"]');
     result.customTag = customTagInput ? customTagInput.value.trim() : '';
-    // console.log(`show price :${result.showPrice}  title: ${result.title}  dec = ${result.description}  tag = ${result.customTag}`);
-    // Get list price input
+
+    // 5. On sale
     const listPriceInput = slide.slideElement.querySelector('input[name*="[retailer][listprice]"]');
-    // Get sale price input
     const salePriceInput = slide.slideElement.querySelector('input[name*="[retailer][price]"]');
 
     if (!listPriceInput || !salePriceInput) {
@@ -403,12 +413,38 @@ function extractProductSlideInfo(slide) {
 
     const listPrice = Number(listPriceInput.value);
     const salePrice = Number(salePriceInput.value);
-
     result.onSale = listPrice > salePrice;
+
+    // 6. Pro & Cons
+    const pro_cons = {
+        pro: [],
+        cons: []
+    };
+
+    // Extract pro values
+    const proInputs = slide.slideElement.querySelectorAll(
+        '.slide-product-statements-pros input[id$="-value"]'
+    );
+    proInputs.forEach(input => {
+        const value = input.value.trim();
+        if (value) pro_cons.pro.push(value);
+    });
+
+    // Extract con values
+    const conInputs = slide.slideElement.querySelectorAll(
+        '.slide-product-statements-cons input[id$="-value"]'
+    );
+    conInputs.forEach(input => {
+        const value = input.value.trim();
+        if (value) pro_cons.cons.push(value);
+    });
+    result.pro_cons = pro_cons;
+
     return result;
 }
-async function simulateProductTextHeight(slide) {
-    const slideData = extractProductSlideInfo(slide);
+
+async function simulateProductTextHeight(slideData) {
+    // const slideData = extractProductSlideInfo(slide);
     if (slideData == null) return 0;
     const wrapper = document.createElement('div');
     wrapper.style.width = '393px';
@@ -450,16 +486,85 @@ async function simulateProductTextHeight(slide) {
         wrapper.appendChild(h2);
     }
 
-    // Dec
-    if (slideData.description) {
-        const leadOuter = createDescription(slideData.description);
-        if (leadOuter) {
-            wrapper.appendChild(leadOuter);
-        }
-    }
+    // Dec can be calculated as a whole
+    // if (slideData.description) {
+    //     const leadOuter = createDescription(slideData.description);
+    //     if (leadOuter) {
+    //         wrapper.appendChild(leadOuter);
+    //     }
+    // }
     document.body.appendChild(wrapper);
     const height = wrapper.offsetHeight;
     document.body.removeChild(wrapper);
+    return height;
+}
+
+async function simulateProductProConsHeight(proconsData) {
+    // 1. Create hidden container for simulation
+    const wrapper = document.createElement('div');
+    wrapper.style.width = '363px';
+    wrapper.style.position = 'absolute';
+    wrapper.style.left = '-9999px';
+    wrapper.style.top = '0';
+    wrapper.style.visibility = 'hidden';
+    wrapper.style.boxSizing = 'border-box';
+    wrapper.style.fontFamily = `"Hiragino Kaku Gothic ProN", Meiryo, sans-serif`;
+    wrapper.style.lineHeight = '1.2';
+    wrapper.style.fontSize = '12px';
+    // wrapper.style.padding = '16px';
+
+    // 2. Create the table-like layout
+    ['pro', 'cons'].forEach((type) => {
+        const col = document.createElement('div');
+        col.style.flex = '1';
+        // col.style.padding = '8px';
+        col.style.boxSizing = 'border-box';
+        col.style.borderRight = type === 'pro' ? '1px solid #ccc' : 'none';
+
+        const title = document.createElement('h3');
+        title.innerText = type === 'pro' ? 'PROS' : 'CONS';
+        title.style.fontSize = '12px';
+        title.style.margin = '0 0 8px 0';
+        title.style.fontWeight = 'bold';
+        title.style.textTransform = 'uppercase';
+
+        col.appendChild(title);
+
+        const ul = document.createElement('ul');
+        ul.style.margin = '0';
+        ul.style.padding = '0';
+        ul.style.listStyle = 'none';
+
+        proconsData[type].forEach(text => {
+            const li = document.createElement('li');
+            li.style.display = 'grid';
+            li.style.gridTemplateColumns = '14px 1fr';
+            li.style.columnGap = '1px';
+            li.style.alignItems = 'start';
+            li.style.marginTop = '16px';
+            // li.style.lineHeight = '14.4px';
+
+            const icon = document.createElement('span');
+            icon.innerText = type === 'pro' ? '➕' : '❌'; // simulate plus/x icons
+            icon.style.fontSize = '14px';
+
+            const textSpan = document.createElement('span');
+            textSpan.innerText = text;
+
+            li.appendChild(icon);
+            li.appendChild(textSpan);
+            ul.appendChild(li);
+        });
+
+        col.appendChild(ul);
+        wrapper.appendChild(col);
+    });
+
+    // 3. Append to DOM and measure
+    document.body.appendChild(wrapper);
+    const height = wrapper.offsetHeight;
+    document.body.removeChild(wrapper);
+    console.log(`<<<<<<<<<<< table height -- ${height}`);
     return height;
 }
 // ------------------------------------------------------
@@ -539,6 +644,7 @@ async function simulateIPhoneChromeSlideOverflow(slide) {
     if (slide.title) {
         const h2 = createH2Element(slide.title);
         wrapper.appendChild(h2);
+        console.log(`index: ${slide.index} title - h2`);
     }
 
     // Embed Element
@@ -602,61 +708,29 @@ async function simulateIPhoneChromeSlideOverflow(slide) {
         case EmbedType.PRODUCTS:
             embedHeight = calculateImageScreenHeight(slide);
             const slideData = extractProductSlideInfo(slide);
-            let textHeight = await simulateProductTextHeight(slide);
-            if(slideData.showPrice){
-                if (slideData.onSale){
+            let textHeight = await simulateProductTextHeight(slideData);
+            if (slideData.showPrice) {
+                if (slideData.onSale) {
                     textHeight = textHeight + 116;
-                }else{
+                } else {
                     textHeight = textHeight + 60;
                 }
-            }else{
+            } else {
                 textHeight = textHeight + 63;
             }
-            embedHeight = embedHeight + textHeight;
+            const proConsHeight = await simulateProductProConsHeight(slideData.pro_cons);
+            embedHeight = embedHeight + textHeight + proConsHeight;
             break;
         default:
             break;
     }
 
-    // Lead (meta)
+    // Description (meta)
     if (slide.leadHTML) {
         const leadOuter = createDescription(slide.leadHTML);
         if (leadOuter) {
             wrapper.appendChild(leadOuter);
         }
-        // const paragraphMatches = [...slide.leadHTML.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)];
-        // const meaningfulParagraphs = paragraphMatches.filter(match => {
-        //     const content = match[1].replace(/&nbsp;|\uFEFF|\s+/g, ''); // remove &nbsp;, zero-width space, and normal whitespace
-        //     return content.length > 0;
-        // });
-        // const paragraphCount = meaningfulParagraphs.length;
-        // if (paragraphCount > 0) {
-        //     const leadOuter = document.createElement('div');
-        //     leadOuter.style.boxSizing = 'border-box';
-        //     leadOuter.style.paddingLeft = '16px';
-        //     leadOuter.style.paddingRight = '16px';
-        //     leadOuter.style.display = 'block';
-
-        //     const leadInner = document.createElement('div');
-        //     leadInner.style.boxSizing = 'border-box';
-        //     leadInner.style.display = 'block';
-
-        //     // Inject the <p> tags
-        //     leadInner.innerHTML = slide.leadHTML;
-
-        //     // Style each <p> tag
-        //     const paragraphs = leadInner.querySelectorAll('p');
-        //     paragraphs.forEach(p => {
-        //         p.style.fontSize = '16px';
-        //         p.style.lineHeight = '25.6px';
-        //         p.style.marginTop = '16px';
-        //         p.style.marginBottom = '16px';
-        //         p.style.boxSizing = 'border-box';
-        //     });
-
-        //     leadOuter.appendChild(leadInner);
-        //     wrapper.appendChild(leadOuter);
-        // }
     }
 
 
@@ -670,30 +744,35 @@ async function simulateIPhoneChromeSlideOverflow(slide) {
         document.body.appendChild(script);
     }
     const height = wrapper.offsetHeight + embedHeight + 16 * 2;
-    console.log(`index:  ${slide.index}  \ntotal height ---- ${height}  \nwrapper height ---- ${wrapper.offsetHeight}  \nembededHeight height ----- ${embedHeight}`);
+    const diff = height > 640 ? 0 : 640 - height
+    let lineCount = 0;
+    if (height < 640) {
+        if (!slide.leadHTML || isHtmlContentEmpty(slide.leadHTML == true)) {
+            lineCount = Math.ceil((diff - 52) / 25.6)
+        } else {
+            lineCount = Math.ceil(diff / 25.6)
+        }
+        if (lineCount < 1) {
+            lineCount = 1
+        }
+    }
+
+    console.log(`index:  ${slide.index}  \ntotal height ---- ${height}  \nwrapper height ---- ${wrapper.offsetHeight}  \nembededHeight height ----- ${embedHeight} \nline count ---- ${lineCount}`);
     document.body.removeChild(wrapper);
 
     return {
         height,
-        overlapping: height < 670 - 40 // ads margin top:20 bottom:20
+        overlapping: height < 680 - 40, // ads margin top:20 bottom:20
+        lineCount: lineCount
     };
 }
 
 (async function () {
     const slides = extractSlideDataFromDOM();
+    console.log(` slides >> ${slides}`);
     if (!slides) {
         return;
     }
-
-    // const results = slides.map(slide => {
-    //     const simulation = simulateIPhoneChromeSlideOverflow(slide);
-    //     return {
-    //         slide: slide.index,
-    //         height: simulation.height,
-    //         overlapping: simulation.overlapping
-    //     };
-    // });
-
 
     let results = []
     for (const slide of slides) {
@@ -701,18 +780,19 @@ async function simulateIPhoneChromeSlideOverflow(slide) {
         results.push({
             slide: slide.index,
             height: simulation.height,
-            overlapping: simulation.overlapping
+            overlapping: simulation.overlapping,
+            lineRequired: simulation.lineCount
         });
     }
 
     console.table(results);
-    const overlappingSlides = results
-        .filter(r => r.overlapping)
-        .map(r => r.slide)
-        .join(', ');
 
-    const overlappingCount = overlappingSlides ? overlappingSlides.split(',').length : 0;
-    if (overlappingCount > 0) {
-        alert(`Audited ${results.length} slides.\n ${overlappingCount} overlapping.\nSlide index: ${overlappingSlides}`);
+    const overlappingResults = results.filter(r => r.overlapping);
+    if (overlappingResults.length > 0) {
+        const details = overlappingResults.map(r =>
+            `Slide index: ${r.slide}, another ${r.lineRequired} line${r.lineRequired > 1 ? 's' : ''} required`
+        ).join('\n');
+
+        alert(`Audited ${results.length} slides.\n${overlappingResults.length} overlapping:\n${details}`);
     }
 })();
