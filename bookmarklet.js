@@ -2,11 +2,15 @@ const EmbedType = Object.freeze({
     IMAGE: 'image',
     INSTAGRAM: 'instagram',
     VIDEO: 'video',
-    YOUTUBE: 'youbube',
+    YOUTUBE: 'youtube',
     PINTEREST: 'pinterest',
     PRODUCTS: 'products',
     LOOP: 'loop',
 });
+
+const THRESHOLD_HEIGHT = 680;
+
+FACEBOOK_TOKEN = '';
 
 function extractSlideDataFromDOM() {
     // 1. Check if 'listicle' radio is selected
@@ -144,6 +148,27 @@ function isLoopEmbed(slideElement) {
 function isProductsEmbed(slideElement) {
     return slideElement.querySelector('fieldset[class*="product"]') != null;
 }
+
+async function getInstagramEmbedCodeAPI(instagramUrl) {
+    const endpoint = `https://graph.facebook.com/v18.0/instagram_oembed?url=${encodeURIComponent(instagramUrl)}&access_token=${FACEBOOK_TOKEN}`;
+
+    try {
+        const response = await fetch(endpoint);
+        const data = await response.json();
+
+        if (response.ok) {
+            console.log("Embed HTML:", data.html);
+            return data.html;
+        } else {
+            console.error("Error:", data.error);
+            return '';
+        }
+    } catch (error) {
+        console.error("Fetch failed:", error);
+        return '';
+    }
+}
+
 
 function getInstagramEmbedCode(slide) {
     const input = slide.slideElement.querySelector('input.gallery-metadata-url');
@@ -288,6 +313,8 @@ async function simulatePinterestEmbedHeight(pinterestUrl) {
     // Create hidden container
     const container = document.createElement('div');
     container.style.width = '393px';
+    container.style.marginLeft = '16px';
+    container.style.marginRight = '16px';
     container.style.position = 'absolute';
     container.style.left = '-9999px';
     container.style.top = '0';
@@ -661,13 +688,21 @@ async function simulateIPhoneChromeSlideOverflow(slide) {
                     const instaWrapper = document.createElement('div');
                     instaWrapper.innerHTML = instagramInputValue;
                     wrapper.appendChild(instaWrapper);
+
+                    embedHeight = 32; // margin top:0 bottom:32 
                 } else {
                     // only url is
-                    embedHeight = await simulateInstagramEmbedHeight(instagramInputValue);
-                    embedHeight = embedHeight + 32; //margin bottom:32
+                    // TODO: set facebook api token
+                    const instagramEmbedCode = getInstagramEmbedCodeAPI(instagramInputValue);
+                    if (instagramEmbedCode && instagramInputValue.includes('blockquote')) {
+                        const instaWrapper = document.createElement('div');
+                        instaWrapper.innerHTML = instagramInputValue;
+                        wrapper.appendChild(instaWrapper);
+                    }
+                    // TODO: currently ignore instagram url embeded content, un-sos by defalt
+                
                 }
-            }
-            embedHeight = 32; // margin top:0 bottom:32 
+            } 
             break;
         case EmbedType.YOUTUBE:
             embedHeight = 9 / 16 * 363; // margin on horizontal
