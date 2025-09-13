@@ -205,6 +205,7 @@ function calculateImageScreenHeight(slide) {
     const width = img.getAttribute('data-width');
     const height = img.getAttribute('data-height');
     const crop = img.getAttribute('data-selected-crop');
+    console.log('width = '+width+'  height = '+height+'  crop = '+crop)
     if (!width || !height) return 0;
 
     if (crop && crop !== 'freeform') {
@@ -608,9 +609,13 @@ function createH2Element(title) {
 }
 
 function createDescription(descriptionHTML) {
-    const paragraphMatches = [...descriptionHTML.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)];
+    const paragraphMatches = [...descriptionHTML.matchAll(/<(p|li|h2|h3|h4|hr|figure|iframe)[^>]*>([\s\S]*?)<\/\1>/gi)];
     const meaningfulParagraphs = paragraphMatches.filter(match => {
-        const content = match[1].replace(/&nbsp;|\uFEFF|\s+/g, ''); // remove &nbsp;, zero-width space, and normal whitespace
+        const tag = match[1].toLowerCase();
+        const content = match[2].replace(/&nbsp;|\uFEFF|\s+/g, ''); // remove &nbsp;, zero-width space, and normal whitespace
+        if (tag === "figure" || tag === "iframe") {
+            return true;
+        }
         return content.length > 0;
     });
     const paragraphCount = meaningfulParagraphs.length;
@@ -625,17 +630,82 @@ function createDescription(descriptionHTML) {
         leadInner.style.boxSizing = 'border-box';
         leadInner.style.display = 'block';
 
-        // Inject the <p> tags
+        // Inject the html
         leadInner.innerHTML = descriptionHTML;
 
         // Style each <p> tag
-        const paragraphs = leadInner.querySelectorAll('p');
-        paragraphs.forEach(p => {
+        leadInner.querySelectorAll('p').forEach(p => {
             p.style.fontSize = '16px';
             p.style.lineHeight = '25.6px';
             p.style.marginTop = '16px';
             p.style.marginBottom = '16px';
             p.style.boxSizing = 'border-box';
+        });
+
+        // Style each <li> tag
+        leadInner.querySelectorAll('li').forEach(li => {
+            li.style.fontSize = '16px';
+            li.style.lineHeight = '25.6px';
+            li.style.marginTop = '0px';
+            li.style.marginBottom = '10px';
+            li.style.boxSizing = 'border-box';
+        });
+
+        // Style <h2> tags
+        leadInner.querySelectorAll('h2').forEach(h2 => {
+            h2.style.fontSize = '24px'; 
+            h2.style.lineHeight = '32px';
+            h2.style.fontWeight = 'bold';
+            h2.style.marginTop = '28px'; 
+            h2.style.marginBottom = '10px';
+            h2.style.boxSizing = 'border-box';
+        });
+
+        // Style <h3> tags
+        leadInner.querySelectorAll('h3').forEach(h3 => {
+            h3.style.fontSize = '18.72px'; 
+            h3.style.lineHeight = '28px';
+            h3.style.fontWeight = 'bold';
+            h3.style.marginTop = '30px'; 
+            h3.style.marginBottom = '30px';
+            h3.style.boxSizing = 'border-box';
+        });
+
+        // Style <h4> tags
+        leadInner.querySelectorAll('h4').forEach(h4 => {
+            h4.style.fontSize = '16px'; 
+            h4.style.lineHeight = '21px';
+            h4.style.fontWeight = 'bold';
+            h4.style.marginTop = '10px'; 
+            h4.style.marginBottom = '10px';
+            h4.style.boxSizing = 'border-box';
+        });
+
+        // Style <hr> tags
+        leadInner.querySelectorAll('hr').forEach(hr => {
+            hr.style.marginTop = '30px'; 
+            hr.style.marginBottom = '30px';
+            hr.style.boxSizing = 'border-box';
+        });
+
+        // Style <figure> tags
+        leadInner.querySelectorAll('figure').forEach(fig => {
+            fig.style.display = 'block';
+            fig.style.marginTop = '16px';
+            fig.style.marginBottom = '16px';
+            fig.style.boxSizing = 'border-box';
+            fig.style.width = '100%';
+        });
+
+        // Style <iframe> tags
+        leadInner.querySelectorAll('iframe').forEach(frame => {
+            frame.style.display = 'block';
+            frame.style.maxWidth = '100%';
+            frame.style.width = '100%';   // responsive
+            frame.style.height = frame.getAttribute('height') || '281px';
+            frame.style.marginTop = '10px';
+            frame.style.marginBottom = '10px';
+            frame.style.boxSizing = 'border-box';
         });
 
         leadOuter.appendChild(leadInner);
@@ -646,6 +716,14 @@ function createDescription(descriptionHTML) {
 }
 
 async function simulateIPhoneChromeSlideOverflow(slide) {
+    if (!slide) {
+        console.error("simulateIPhoneChromeSlideOverflow called without slide");
+        return {
+          height: 0,
+          overlapping: false,
+          lineCount: 0
+        };
+    }
     const wrapper = document.createElement('div');
     wrapper.style.width = '393px';
     wrapper.style.position = 'absolute';
@@ -657,7 +735,7 @@ async function simulateIPhoneChromeSlideOverflow(slide) {
     wrapper.style.boxSizing = 'border-box';
 
     // Slide Number
-    if (!slide.hideSlideNo && !slide.hideListicleNo) {
+    if (slide.hideSlideNo && slide.hideListicleNo) {
         const number = document.createElement('span');
         number.innerText = slide.number;
         number.style.fontSize = '36px';

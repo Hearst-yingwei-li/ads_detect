@@ -6,9 +6,10 @@ import requests
 import math
 import time
 import csv
-import json
+import re
+import pandas as pd
 
-file_index = 9
+file_index = 0
 
 DIFY_URL = f"http://35.213.67.93/csv/batch_{file_index}.json"
 BASIC_AUTH_NAME = "55oshie-ru"
@@ -22,6 +23,9 @@ PADDING_DEK = 52
 PADDING_SLIDE = 32
 THRESHOLD_HEIGHT = 660
 LINE_HEIGHT_BR = 25.6
+
+#----- for dek test -----
+dek_np = {"mos_id":[],"slide_index":[],"ori_html":[],'tag':[]}
 
 
 def render_description_block(description_html: str):
@@ -94,18 +98,41 @@ async def measure_title(page, title_text: str) -> int:
     """
     return await page.evaluate(script)
 
-
 async def measure_dek(page, description_html: str) -> int:
     # Escape backticks and embed the HTML safely
     escaped_html = description_html.replace("`", "\\`")
+    # match = re.search(r'<div class="inner-wrapper">\s*<([a-zA-Z0-9]+)', escaped_html)
+    # if match:
+    #     tag = match.group(1)
+    #     if tag == 'p':
+    #         pass
+    #     else:
+    #         print("First tag:", match.group(1))
+    #         print(f'html --- {escaped_html}')
+    #         paragraph_matches = re.findall(r"<p[^>]*>([\s\S]*?)<\/p>", description_html, flags=re.IGNORECASE)
+    #         meaningful_paragraphs = [
+    #             content for content in paragraph_matches
+    #             if re.sub(r'&nbsp;|\uFEFF|\s+', '', content)  # remove whitespace, &nbsp;, BOM
+    #         ]
+    #         print(f'meaningfull_paragraphs ------------ {meaningful_paragraphs}')
 
+    # else:
+    #     pass
+        # print("Not found")
+        # print(f'html --- {escaped_html}')
+    # --------------------------------------------------------------------------------------
+    # const paragraphMatches = [...descriptionHTML.matchAll(/<p[^>]*>([\\s\\S]*?)<\\/p>/gi)];
     script = f"""
     () => {{
         const descriptionHTML = `{escaped_html}`;
 
-        const paragraphMatches = [...descriptionHTML.matchAll(/<(p|li|h2|h3)[^>]*>([\s\S]*?)<\/\1>/gi)];
+        const paragraphMatches = [...descriptionHTML.matchAll(/<(p|li|h2|h3|h4|figure|iframe)[^>]*>([\\s\\S]*?)<\\/\\1>/gi)];
         const meaningfulParagraphs = paragraphMatches.filter(match => {{
-            const content = match[1].replace(/&nbsp;|\\uFEFF|\\s+/g, '');
+            const tag = match[1].toLowerCase();
+            const content = match[2].replace(/&nbsp;|\\uFEFF|\\s+/g, '');
+            if (tag === "figure" || tag === "iframe") {{
+            return true;
+        }}
             return content.length > 0;
         }});
 
@@ -165,6 +192,39 @@ async def measure_dek(page, description_html: str) -> int:
             h3.style.marginBottom = '30px';
             h3.style.boxSizing = 'border-box';
         }});
+        
+        leadInner.querySelectorAll('h4').forEach(h4 => {{
+            h4.style.fontSize = '16px'; 
+            h4.style.lineHeight = '21px';
+            h4.style.fontWeight = 'bold';
+            h4.style.marginTop = '10px'; 
+            h4.style.marginBottom = '10px';
+            h4.style.boxSizing = 'border-box';
+        }});
+        
+        leadInner.querySelectorAll('hr').forEach(hr => {{
+            hr.style.marginTop = '30px'; 
+            hr.style.marginBottom = '30px';
+            hr.style.boxSizing = 'border-box';
+        }});
+        
+        leadInner.querySelectorAll('figure').forEach(fig => {{
+            fig.style.display = 'block';
+            fig.style.marginTop = '16px';
+            fig.style.marginBottom = '16px';
+            fig.style.boxSizing = 'border-box';
+            fig.style.width = '100%';
+        }});
+        
+        leadInner.querySelectorAll('iframe').forEach(frame => {{
+            frame.style.display = 'block';
+            frame.style.maxWidth = '100%';
+            frame.style.width = '100%';   // responsive
+            frame.style.height = frame.getAttribute('height') || '281px';
+            frame.style.marginTop = '10px';
+            frame.style.marginBottom = '10px';
+            frame.style.boxSizing = 'border-box';
+        }});
 
         leadOuter.appendChild(leadInner);
         wrapper.appendChild(leadOuter);
@@ -175,7 +235,9 @@ async def measure_dek(page, description_html: str) -> int:
         return height;
     }}
     """
-    return await page.evaluate(script)
+    dek_h = await page.evaluate(script)
+    # print(f'dek_h :: {dek_h}')
+    return dek_h
 
 
 async def measure_instagram_embed_html(page, embed_html: str) -> int:
@@ -184,7 +246,7 @@ async def measure_instagram_embed_html(page, embed_html: str) -> int:
     This provides a clean, isolated environment for each measurement.
     """
     if not embed_html or not embed_html.strip():
-        return 0
+        return THRESHOLD_HEIGHT
 
     # The container will constrain the width to simulate the device.
     # iPhone 16 viewport is 393px. With 16px padding on each side, content width is 361px.
@@ -233,7 +295,7 @@ async def measure_instagram_embed_html(page, embed_html: str) -> int:
         return height
     except Exception as e:
         print(f"Instagram embed failed to render or timed out: {e}")
-        return 0
+        return THRESHOLD_HEIGHT
 
 
 async def measure_instagram_permalink_height(page, permalink_url: str) -> int:
@@ -404,6 +466,7 @@ async def measure_loop_video_embed(page, video_filename, path=None) -> int:
     result = await page.evaluate(js_script)
     return round(result)
 
+
 async def measure_slide_heights(page, slide: Dict) -> Dict:
     slide_number = slide.get("slide_number", "")
     title = slide.get("title", "")
@@ -456,12 +519,11 @@ async def measure_slide_heights(page, slide: Dict) -> Dict:
             instagram_h = await measure_instagram_embed_html(
                 page, instagram_embed_code
             )  # FIXME:FOR TEST instagram_embed_code
-            ｐrint(f'aaa instagram embed_code height-- {instagram_h}')
         except Exception as e:
-            print(f"111 An exception occurred while measuring Instagram embed code: {e}")
+            # print(f"An exception occurred while measuring Instagram embed code: {e}")
             instagram_h = THRESHOLD_HEIGHT
     elif instagram_url and "instagram.com/p/" in instagram_url:
-        # print(f"Measuring Instagram content via permalink:")
+        # print(f"Measuring Instagram content via permalink: {instagram_url}")
         # TODO: TEST generate embed_code from LLM
         instagram_h = THRESHOLD_HEIGHT
     
@@ -494,9 +556,9 @@ async def measure_slide_heights(page, slide: Dict) -> Dict:
     image_height_product = slide.get("image_height_product", 0)
     show_price = slide.get("show_price", False)
     product_price_height = 47 + 16.8 if show_price else 0
-    print(
-        f"index = {slide.get("index")}  slide_number_height={slide_number_h}  title_height = {title_h} dek_height = {desc_h} image_height = {img_h}  instagram_height = {instagram_h}"
-    )
+    # print(
+    #     f"title_product={title_product}  dek_product = {dek_product}  image_height_product = {image_height_product}  show_price = {show_price}"
+    # )
 
     return {
         "slide_number": slide_number_h,
@@ -531,7 +593,6 @@ async def measure_slide_heights(page, slide: Dict) -> Dict:
         + PADDING_SLIDE,
     }
 
-
 async def get_from_db():
     response = requests.get(DIFY_URL, auth=(BASIC_AUTH_NAME, BASIC_AUTH_PW))
     response.raise_for_status()  # raise an error if the request failed
@@ -549,12 +610,90 @@ async def check_height_result(calcluated_height, slide):
     br_block = f'<p class="__auto-inserted-br__">{br_tags}</p>'
     return dek + br_block
 
+async def process_slide(context, page, media, slide):
+    try:
+        is_instagram = slide.get("embed_code_instagram") or "instagram.com/p/" in slide.get("url_instagram", "") or 'instagram' in slide.get("url_pinterest","")
+        if is_instagram:
+            insta_page = await context.new_page()
+            try:
+                height_result = await measure_slide_heights(insta_page, slide)
+                dek_br = await check_height_result(height_result, slide)
+            finally:
+                await insta_page.close()
+        else:
+            height_result = await measure_slide_heights(page, slide)
+            dek_br = await check_height_result(height_result, slide)
+
+        if dek_br:
+            return {
+                "site_prefix": media.get("site"),
+                "section_slug": slide.get("section_slug"),
+                "id": media.get("mos_id"),
+                "slide_no": slide.get("index"),
+                "dek": dek_br,
+            }
+    except Exception as e:
+        print(f"Slide failed (mos_id={media.get('mos_id')}  site_prefix={media.get("site")} slide_no={slide.get("index")}): {e}")
+        return None
+    
+
+# async def get_height(data):
+#     time_start = time.time()
+#     async with async_playwright() as p:
+#         browser = await p.chromium.launch(headless=True)
+#         # 1. Create a new, isolated browser context for this media item
+#         context = await browser.new_context(viewport={"width": 393, "height": 800})
+#         # context = await browser.new_context(**p.devices["iPhone 15 Pro"])
+
+#         # 2. Create a single, reusable page for all non-Instagram slides
+#         page = await context.new_page()
+
+#         fix_slides = []
+#         # count = 0
+#         for media in data:
+#             # if count > 1:
+#             #     continue
+#             # print(f'media --- {media}')
+#             # count+=1
+#             # context = None
+#             try:
+#                 slides = media.get("slides", [])
+#                 # Run all slide tasks concurrently
+#                 slide_tasks = [
+#                     process_slide(context, page, media, slide) for slide in slides
+#                 ]
+#                 results = await asyncio.gather(*slide_tasks, return_exceptions=True)
+#                 fix_slides.extend([r for r in results if isinstance(r, dict)])
+#             except Exception as e:
+#                 print(
+#                     f"!! FATAL: Could not process media item. Error: {e}"
+#                 )
+#             # finally:
+#             #     if context:
+#             #         await context.close()
+
+#         print(f"modified result ---- {len(fix_slides)}")
+#         await context.close()
+#         await browser.close()
+#         diff = time.time() - time_start
+#         print(f"Execution time: {diff:.4f} seconds")
+#         return fix_slides
+#         output_file = f"test_sos_out.csv"
+
+#         # Write to CSV
+#         with open(output_file, mode="w", newline="", encoding="utf-8") as csvfile:
+#             writer = csv.DictWriter(csvfile, fieldnames=fix_slides[0].keys(), quoting=csv.QUOTE_ALL)
+#             writer.writeheader()  # write column headers
+#             writer.writerows(fix_slides)
+
+#         print(f"CSV saved to: {output_file}")
 
 async def main():
-    # data = await get_from_db()
-    with open('test.json', 'r', encoding='utf-8') as f:
-        data = json.load(f)
-    print(f"get from db --- {len(data)}")
+    data = await get_from_db()
+    print(f'get from db --- {len(data)}')
+    #------------------------------------------
+    df = pd.read_csv('out_un_p_tag.csv', encoding='utf-8')
+    #------------------------------------------
 
     time_start = time.time()
     async with async_playwright() as p:
@@ -562,112 +701,58 @@ async def main():
         context = await browser.new_context(viewport={"width": 393, "height": 800})
         # 1. Create a new, isolated browser context for this media item
         # context = await browser.new_context(**p.devices["iPhone 15 Pro"])
+
         # 2. Create a single, reusable page for all non-Instagram slides
         page = await context.new_page()
 
         fix_slides = []
-        count = 0
+        # count = 0
         for media in data:
-            # if count > 5:
+            # ---- FIXME: fix <p> tag only issus in dek
+            # if count > 500:
             #     break
             # count += 1
-
+            
             # context = None
             try:
-                # 1. Create a new, isolated browser context for this media item
-                # context = await browser.new_context(**p.devices["iPhone 15 Pro"])
-
-                # 2. Create a single, reusable page for all non-Instagram slides
-                # page = await context.new_page()
-
+                mos_id = media.get('mos_id',"")
+                #------------------------------------------
+                if not mos_id or mos_id not in df['id'].values:
+                    continue
+                #------------------------------------------
+                print(f'mos_id ---- {mos_id}')
                 slides = media.get("slides", [])
-                # print(
-                #     f"--- Processing MOS ID: {media.get('mos_id')} | Contains {len(slides)} slides --- | url = {media.get('url','')}"
-                # )
-
-                for slide in slides:
-                    try:
-                        embed_code_instagram = slide.get(
-                            "embed_code_instagram"
-                        )
-                        is_instagram = embed_code_instagram != None or "instagram.com/p/" in slide.get("url_instagram", "") or 'instagram' in slide.get("url_pinterest","")
-                        print(f'------------- is instagram --- {is_instagram} index: {slide.get('index','')}')
-                        if is_instagram:
-                            # 3. For Instagram, create a TEMPORARY page for perfect isolation
-                            insta_page = await context.new_page()
-                            try:
-                                height_result = await measure_slide_heights(
-                                    insta_page, slide
-                                )
-                                dek_br = await check_height_result(height_result, slide)
-                                if dek_br:
-                                    # Add to result
-                                    print(f" instagrm --- {height_result}")
-                                    print(
-                                        f"--- Processing MOS ID: {media.get('mos_id')} | Contains {len(slides)} slides --- | url = {media.get('url','')}"
-                                    )
-                                    fix_slides.append(
-                                        {
-                                            "site_prefix": slide.get("site"),
-                                            "section_slug": slide.get("section_slug"),
-                                            "id": slide.get("mos_id"),
-                                            "slide_no": slide.get("index"),
-                                            "dek": dek_br,
-                                        }
-                                    )
-                                    pass
-                            finally:
-                                # 4. Immediately destroy the temporary page
-                                await insta_page.close()
-                        else:
-                            # 5. For all other content, use the fast, reusable page
-                            height_result = await measure_slide_heights(
-                                page, slide
-                            )
-                            dek_br = await check_height_result(height_result, slide)
-                            if dek_br:
-                                # Add to result
-                                # print(height_result)
-                                # print(
-                                #     f"--- Processing MOS ID: {media.get('mos_id')} | Contains {len(slides)} slides --- | url = {media.get('url','')}"
-                                # )
-                                fix_slides.append(
-                                    {
-                                        "site_prefix": media.get("site"),
-                                        "section_slug": slide.get("section_slug"),
-                                        "id": media.get("mos_id"),
-                                        "slide_no": slide.get("index"),
-                                        "dek": dek_br,
-                                    }
-                                )
-
-                    except Exception as e:
-                        print(
-                            f"    - WARN: Failed to measure one slide. Error: {e}\nMOS ID: {media.get('mos_id')} | url = {media.get('url','')}"
-                        )
-
+                # Run all slide tasks concurrently
+                slide_tasks = [
+                    process_slide(context, page, media, slide) for slide in slides
+                ]
+                results = await asyncio.gather(*slide_tasks, return_exceptions=True)
+                fix_slides.extend([r for r in results if isinstance(r, dict)])
             except Exception as e:
                 print(
                     f"!! FATAL: Could not process media item {media.get('mos_id')}. Error: {e}"
                 )
-            finally:
-                if context:
-                    await context.close()
+            # finally:
+            #     if context:
+            #         await context.close()
+            # print(f'mos_id ---- {mos_id}')
 
         print(f"modified result ---- {len(fix_slides)}")
+        await context.close()
         await browser.close()
         diff = time.time() - time_start
         print(f"Execution time: {diff:.4f} seconds")
 
-        output_file = f"batch_output_{file_index}.csv"
+        output_file = f"batch_{file_index}.csv"
 
         # Write to CSV
-        # with open(output_file, mode="w", newline="", encoding="utf-8") as csvfile:
-        #     writer = csv.DictWriter(csvfile, fieldnames=fix_slides[0].keys(), quoting=csv.QUOTE_ALL)
-        #     writer.writeheader()  # write column headers
-        #     writer.writerows(fix_slides)
+        if fix_slides:
+            with open(output_file, mode="w", newline="", encoding="utf-8") as csvfile:
+                writer = csv.DictWriter(csvfile, fieldnames=fix_slides[0].keys(), quoting=csv.QUOTE_ALL)
+                writer.writeheader()  # write column headers
+                writer.writerows(fix_slides)
 
-        # print(f"CSV saved to: {output_file}")
+            print(f"CSV saved to: {output_file}")
 
 
 if __name__ == "__main__":
